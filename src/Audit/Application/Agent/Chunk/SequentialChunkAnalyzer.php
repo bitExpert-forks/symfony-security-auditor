@@ -68,6 +68,7 @@ final readonly class SequentialChunkAnalyzer
     {
         $allVulnerabilities = [];
         $totalDropsByReason = [];
+        $providerFailures = [];
 
         foreach ($chunks as $index => $chunk) {
             $this->logger->debug(\sprintf('Analyzing chunk %d/%d', $index + 1, \count($chunks)));
@@ -84,9 +85,12 @@ final readonly class SequentialChunkAnalyzer
 
                 throw $budgetExceededException;
             } catch (LLMProviderException $llmProviderException) {
-                $this->failRemainingChunks($chunks, $index + 1, 'errored', $coverageRecorder);
+                $providerFailures[] = $llmProviderException;
+                $this->logger->warning('Attacker chunk failed; the chunk is recorded as errored and the audit continues.', [
+                    'error' => $llmProviderException->getMessage(),
+                ]);
 
-                throw $llmProviderException;
+                $chunkResult = VulnerabilityHydrationResult::empty();
             }
 
             foreach ($chunkResult->vulnerabilities() as $vulnerability) {
@@ -113,7 +117,29 @@ final readonly class SequentialChunkAnalyzer
             ]);
         }
 
+        $this->rethrowWhenEveryChunkFailed($providerFailures, \count($chunks));
+
         return [$allVulnerabilities, $totalDropsByReason];
+    }
+
+    /**
+     * A provider failure that spares some chunks costs only those chunks, so the
+     * run continues and reports what it did learn. One that takes every chunk
+     * leaves nothing behind: keeping that run would emit a report claiming the
+     * project is clean on the strength of an LLM that never answered, so the
+     * last failure is rethrown instead.
+     *
+     * @param list<LLMProviderException> $providerFailures
+     *
+     * @throws LLMProviderException
+     */
+    private function rethrowWhenEveryChunkFailed(array $providerFailures, int $totalChunks): void
+    {
+        if ([] === $providerFailures || \count($providerFailures) !== $totalChunks) {
+            return;
+        }
+
+        throw $providerFailures[\count($providerFailures) - 1];
     }
 
     /**

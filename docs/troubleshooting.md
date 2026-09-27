@@ -309,9 +309,13 @@ Self-hosted endpoints and proxied APIs produce it most often, in two ways:
   model server with a small worker pool drops the excess. Set both to `1`;
   `balanced` and `thorough` already default to `1`.
 
-If it still ends the audit, the truncation outlived every attempt — read the
-`LLM call failed, retrying after backoff` warnings for the attempt count before
-tuning anything else.
+If it still ends the audit, the truncation outlived every attempt on every
+chunk. One failed chunk no longer stops the run — it is recorded as `errored` in
+coverage, logged as a warning, and the audit continues with the chunks that did
+answer. A run whose chunks all failed is still aborted, because it learned
+nothing and reporting it would claim the project is clean on the strength of an
+LLM that never answered. Read the `LLM call failed, retrying after backoff`
+warnings for the attempt count before tuning anything else.
 
 ### `LLM response was empty` / `Failed to parse … JSON response`
 
